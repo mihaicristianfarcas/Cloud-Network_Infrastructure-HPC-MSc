@@ -1,0 +1,320 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[a4paper,margin=1.65cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{combelow}
+\usepackage{longtable}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\usepackage{lastpage}
+
+\definecolor{codebg}{gray}{0.96}
+\definecolor{blue}{RGB}{20,70,140}
+\definecolor{orange}{RGB}{170,80,10}
+
+\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{2.5pt}
+\titlespacing*{\section}{0pt}{6pt}{2pt}
+\titlespacing*{\subsection}{0pt}{4pt}{1pt}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot[C]{\small\thepage/\pageref{LastPage}}
+\renewcommand{\headrulewidth}{0pt}
+
+\lstset{
+  language=SQL,
+  basicstyle=\ttfamily\footnotesize,
+  columns=fullflexible,
+  keepspaces=true,
+  backgroundcolor=\color{codebg},
+  frame=none,
+  aboveskip=2pt,
+  belowskip=2pt,
+  xleftmargin=2pt,
+  xrightmargin=2pt,
+  showstringspaces=false
+}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+\begin{document}
+
+\begin{center}
+{\Large\bfseries Bitemporal Football Database}\\[2pt]
+{\small Mihai-Cristian Farca\textcommabelow{s} \quad Assignment 1, Cloud Databases 2026 \quad MariaDB 11.8.9}
+\end{center}
+
+\section{Domain and why time matters}
+A fictional football league: six clubs, 60 players, six head coaches and two
+seasons.  Contracts start, end and restart, and the paperwork is sometimes late or
+wrong.  A payroll clerk, a regulator and an auditor can all ask \emph{``who was FC
+Nord's coach on 2 September 2025, as the database knew it on date T?''} and need
+different answers: Rusu as known on 5 September, Pop as known on 12 September, and
+Rusu again today, after the handover was corrected from 1 to 3 September.  A table
+with only valid time cannot give all three.
+
+\section{Modeling decisions}
+\textbf{Periods.}  Every version table has \code{valid\_from}, \code{valid\_to},
+\code{tx\_from} and \code{tx\_to}, all half-open (\code{from <= x AND x < to});
+the seasons follow the same rule.  Valid time is \code{DATE}, since contracts change
+by the day; transaction time is \code{DATETIME(6)} in UTC.
+
+\textbf{Sentinels, not NULL.}  Open ends are \code{9999-12-31} and
+\code{9999-12-31 23:59:59.999999}, so every predicate stays a plain, indexable range.
+\code{TIMESTAMP} is not used: it ends in 2038 and cannot hold the sentinel.
+
+\textbf{Anchor + version.}  \code{agent}, \code{player}, \code{club}, \code{coach}
+and \code{season} are non-temporal anchors.  The bitemporal tables are
+\code{contract\_version} (the relationship), \code{coach\_assignment\_version} (the
+role), \code{player\_value\_version} (the numeric attribute) and
+\code{club\_license\_version} (the parent for I2).  \code{calendar\_month} and
+\code{query\_params} are helpers, and \code{story\_event} is a hand-written index of
+the events, not the data.
+
+\textbf{tx\_registry.}  Each logical change writes one \code{tx\_registry} row, and
+every version row it touches gets that \code{tx\_id} and \code{tx\_time}.  An E9
+change to a licence, ten contracts and ten values is therefore one transaction.
+
+\textbf{Invariants.}  \code{v\_integrity\_violations} checks I1 (no overlapping
+current beliefs per key), I2 (contracts covered by the union of the club's licence
+periods), I3 (one coach per club at a time) and that transaction intervals are well
+formed (I4).  The immutability part of I4 is enforced by the A1 triggers.
+
+There are no deviations from the modeling rules.
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lrr@{}}
+\toprule
+Volume & Required & Actual\\
+\midrule
+Players & 50 & 60\\
+Clubs & 6 & 6\\
+Coaches & 5 & 6\\
+Current contract beliefs$^{*}$ & 60 & 78\\
+Version rows & 120 & 218\\
+\bottomrule
+\end{tabular}\\[2pt]
+{\scriptsize $^{*}$Open \code{tx\_to}, any valid time; 56 are valid on 2026-10-15.}
+\end{center}
+
+\section{Write protocol: E3, E4 and E8}
+Each write sets the clock \code{@sim\_now}, adds a \code{tx\_registry} row, closes
+the old belief (only \code{tx\_to} changes) and inserts the new one.
+\code{@SENT\_DATE} and \code{@SENT\_TS} are the sentinels.  The A1 procedures follow
+the same steps, and the A1 triggers block every other write.
+
+\textbf{E3, late entry.}  On 10 September the clerk records that Pop took over on
+1 September.
+\begin{lstlisting}
+SET @sim_now := '2025-09-10 14:00:00';
+INSERT INTO tx_registry (tx_time, author, reason)
+VALUES (@sim_now, 'clerk', 'E3 late entry: K2 takes FC Nord');
+SET @tx := LAST_INSERT_ID();
+
+UPDATE coach_assignment_version SET tx_to = @sim_now
+WHERE coach_id = 1 AND club_id = 1
+  AND tx_to = @SENT_TS AND valid_to = @SENT_DATE;
+
+INSERT INTO coach_assignment_version
+  (coach_id, club_id, role_title, valid_from, valid_to, tx_from, tx_to, tx_id)
+SELECT coach_id, club_id, role_title, valid_from, '2025-09-01', @sim_now, @SENT_TS, @tx
+FROM coach_assignment_version
+WHERE coach_id = 1 AND club_id = 1
+  AND tx_to = @sim_now AND valid_to = @SENT_DATE;
+
+INSERT INTO coach_assignment_version
+  (coach_id, club_id, role_title, valid_from, valid_to, tx_from, tx_to, tx_id)
+VALUES (2, 1, 'Head coach', '2025-09-01', @SENT_DATE, @sim_now, @SENT_TS, @tx);
+\end{lstlisting}
+
+\textbf{E4, correction.}  On 15 September the handover is corrected to 3 September:
+both beliefs from 10 September are closed and the corrected pair is inserted.
+\begin{lstlisting}
+SET @sim_now := '2025-09-15 11:00:00';
+INSERT INTO tx_registry (tx_time, author, reason)
+VALUES (@sim_now, 'auditor', 'E4 correction: handover was 2025-09-03');
+SET @tx := LAST_INSERT_ID();
+
+UPDATE coach_assignment_version SET tx_to = @sim_now
+WHERE club_id = 1 AND tx_to = @SENT_TS;
+
+INSERT INTO coach_assignment_version
+  (coach_id, club_id, role_title, valid_from, valid_to, tx_from, tx_to, tx_id)
+VALUES (1, 1, 'Head coach', '2025-07-01', '2025-09-03', @sim_now, @SENT_TS, @tx),
+       (2, 1, 'Head coach', '2025-09-03', @SENT_DATE, @sim_now, @SENT_TS, @tx);
+\end{lstlisting}
+
+\textbf{E8, retraction.}  The P6/CS Port contract was never true, so it is closed in
+transaction time with no replacement.
+\begin{lstlisting}
+SET @sim_now := '2026-02-12 09:00:00';
+INSERT INTO tx_registry (tx_time, author, reason)
+VALUES (@sim_now, 'auditor', 'E8 retraction: P6 at CS Port was never true');
+SET @tx := LAST_INSERT_ID();
+
+UPDATE contract_version SET tx_to = @sim_now
+WHERE player_id = 6 AND club_id = 2
+  AND tx_from = '2026-02-10 10:00:00' AND tx_to = @SENT_TS;
+\end{lstlisting}
+
+\section{Challenges and failed attempts}
+\textbf{Close + insert in a trigger.}  The first A1 design did the whole protocol in
+an \code{AFTER UPDATE} trigger.  MariaDB refuses with \code{ERROR 1442}: a trigger
+cannot modify the table that fired it.  The close + insert moved into procedures,
+and the triggers only guard.
+
+\textbf{Parameterised AS OF.}  \code{FOR SYSTEM\_TIME AS OF (SELECT known\_at FROM
+query\_params)} fails with \code{ERROR 1064}, and a view using a variable fails with
+\code{ERROR 1351}.  The native views use literal timestamps instead, one per Q6 date.
+
+\textbf{Dropping the index for EXPLAIN.}  \code{ix\_coach\_asof} also backs the
+foreign key on \code{club\_id}, so \code{DROP INDEX} fails (error 1553).  The plan
+without it uses \code{IGNORE INDEX} instead.
+
+\textbf{A drifting EXPLAIN estimate.}  Right after loading, the indexed plan
+estimated 7 rows instead of 4.  Closing a belief updates \code{tx\_to}, which is in
+the index, and InnoDB keeps the old entries until its purge runs.
+\code{tools/explain\_q6.sql} now waits for purge first.
+
+\section{Insights: what the engines would enforce}
+\textbf{Oracle 23ai.}  Temporal Validity (\code{PERIOD FOR}, \code{AS OF PERIOD
+FOR}) covers valid time, and Flashback Data Archive (\code{AS OF TIMESTAMP},
+\code{VERSIONS BETWEEN}) keeps an append-only transaction history, which is I4.
+I1--I3 would still need constraints or triggers.
+
+\textbf{SQL Server 2022.}  System-versioned tables stamp transaction time and protect
+the history table (I4), but there is no valid-time period, so I1--I3 stay manual.
+
+\textbf{PostgreSQL 18/19.}  \code{WITHOUT OVERLAPS} keys would enforce I1 and I3.  A
+\code{PERIOD} foreign key enforces I2 only against a single parent period; our
+licences have a six-month gap, so I2 would still need a trigger.  \code{FOR PORTION
+OF} (19) shortens E4 and E5, but transaction time still needs triggers or an
+extension.
+
+\textbf{MariaDB (A2).}  \code{PERIOD FOR} and \code{WITH SYSTEM VERSIONING} reproduce
+Q1, Q5 and Q6 with zero differences from the core views.  The costs: the open
+transaction end is \code{2106-02-07 06:28:15.999999} instead of 9999, and backdated
+history needs the \code{system\_versioning\_insert\_history} loading mode.
+
+\section{Query outputs and EXPLAIN}
+All outputs come from \code{05\_tests.sql}.
+
+\textbf{Q0.}  0 rows on the final data.  Each test returns one row and is rolled
+back: an overlapping contract for P1 (I1), P51 at FC Sud during the suspension (I2)
+and a second FC Nord coach (I3).
+
+\textbf{Q1.}  P1 on 2026-10-15: FC Nord, 120,000, permanent, valid from 2026-07-01.
+
+\textbf{Q2.}  FC Nord as known on 2026-10-15: Rusu from 2025-07-01 to 2025-09-03
+(64 days), then Pop from 2025-09-03 (407 days).  A rolled-back test splits Pop's row
+into two adjacent periods, and Q2 still returns a single Pop row.
+
+\textbf{Q3.}  26 events: 14 proactive, 8 late, 4 corrections.  \emph{Derived} is
+computed from the version rows alone and agrees with the authored code on all 26.
+Delay is the recorded date minus the valid date, in days.
+{\scriptsize
+\setlength{\tabcolsep}{3pt}
+\setlength{\LTpre}{2pt}
+\setlength{\LTpost}{2pt}
+\begin{longtable}{@{}lllllllll@{}}
+\toprule
+Code & Derived & Table & Key & Valid & Recorded & Delay & Old value & New value\\
+\midrule
+\endfirsthead
+\toprule
+Code & Derived & Table & Key & Valid & Recorded & Delay & Old value & New value\\
+\midrule
+\endhead
+E3 & Late entry & contract & player:56 & 2025-07-10 & 2025-07-25 10:00 & 15 & NULL & FC Sud, 150000.00\\
+E3 & Late entry & contract & player:57 & 2025-07-15 & 2025-07-28 11:00 & 13 & NULL & FC Sud, 170000.00\\
+E3 & Late entry & contract & player:58 & 2025-08-01 & 2025-08-12 09:30 & 11 & NULL & FC Sud, 175000.00\\
+E3 & Late entry & contract & player:59 & 2025-08-05 & 2025-08-20 14:00 & 15 & NULL & FC Sud, 195000.00\\
+E3 & Late entry & contract & player:60 & 2025-08-10 & 2025-08-25 16:00 & 15 & NULL & FC Sud, 200000.00\\
+E4 & Correction & licence & club:6 & 2025-07-01 & 2025-09-05 09:00 & 66 & conditional & full\\
+E3 & Late entry & coach & club:1 & 2025-09-01 & 2025-09-10 14:00 & 9 & K1 Mihai Rusu & K2 Andrei Pop\\
+E4 & Correction & coach & club:1 & 2025-09-01 & 2025-09-15 11:00 & 14 & Pop from 2025-09-01 & Pop from 2025-09-03\\
+E3 & Late entry & coach & club:2 & 2025-10-01 & 2025-10-10 12:00 & 9 & NULL & K3 Vlad Ionescu\\
+E4 & Correction & contract & player:7 & 2025-07-01 & 2025-11-10 09:00 & 132 & 114500.00 & 150000.00\\
+E2 & Proactive & coach & club:3 & 2026-01-15 & 2026-01-05 10:00 & $-$10 & NULL & K4 Dan Marinescu\\
+E2 & Proactive & coach & club:4 & 2026-01-15 & 2026-01-05 10:00 & $-$10 & NULL & K6 Radu Stan\\
+E2 & Proactive & coach & club:6 & 2026-01-15 & 2026-01-05 10:00 & $-$10 & NULL & K1 Mihai Rusu\\
+E2 & Proactive & contract & player:12 & 2026-01-15 & 2026-01-10 10:00 & $-$5 & CS Port & Rapid Vest (loan)\\
+E2 & Proactive & contract & player:1 & 2026-07-01 & 2026-01-18 12:00 & $-$164 & FC Nord, 93,500 & FC Nord, 120,000\\
+E4 & Correction & value & player:8 & 2025-07-01 & 2026-01-20 15:00 & 203 & 1690000.00 & 3200000.00\\
+E2 & Proactive & value & player:10 & 2026-03-01 & 2026-02-01 09:00 & $-$28 & 2,330,000 & 2,800,000\\
+E3 & Late entry & value & player:30 & 2026-02-01 & 2026-02-15 14:00 & 14 & 5,300,000 & 6,100,000\\
+E2 & Proactive & contract & player:7 & 2026-07-01 & 2026-06-15 11:00 & $-$16 & free agent & FC Nord, 160,000\\
+E2 & Proactive & licence & club:6 & 2026-07-01 & 2026-06-20 09:00 & $-$11 & suspended & full\\
+E2 & Proactive & contract & club:6 & 2026-07-01 & 2026-06-20 09:00 & $-$11 & 10 ended contracts & 10 contracts from 2026-07-01\\
+E2 & Proactive & value & club:6 & 2026-07-01 & 2026-06-20 09:00 & $-$11 & 10 values & 10 values +10\%\\
+E2 & Proactive & contract & player:2 & 2026-07-01 & 2026-06-20 10:00 & $-$11 & FC Nord & Universitatea Est\\
+E2 & Proactive & contract & player:17 & 2026-08-01 & 2026-07-20 09:00 & $-$12 & free agent & CS Port, 195,000\\
+E2 & Proactive & contract & player:46 & 2026-09-01 & 2026-08-20 09:00 & $-$12 & free agent & CSM Centru, 140,000\\
+E2 & Proactive & contract & player:27 & 2027-01-01 & 2026-09-01 09:00 & $-$122 & free agent & Universitatea Est, 135,000\\
+\bottomrule
+\end{longtable}}
+
+\textbf{Q4.}  For 2025/26, [2025-07-01, 2026-07-01), 18 contracts overlap the season
+only in part and 44 cover it throughout.
+
+\textbf{Q5.}  On 2026-02-11 12:00 the database believed 63 contract rows, including
+the wrong P6/CS Port row (believed from 10 to 12 February).
+
+\textbf{Q6.}  FC Nord's coach on 2025-09-02, at three transaction dates.
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}llll@{}}
+\toprule
+Known at & Coach & Valid period & Transaction period\\
+\midrule
+2025-09-05 & Mihai Rusu & [2025-07-01, 9999) & [2025-07-01, 2025-09-10)\\
+2025-09-12 & Andrei Pop & [2025-09-01, 9999) & [2025-09-10, 2025-09-15)\\
+2026-10-15 & Mihai Rusu & [2025-07-01, 2025-09-03) & [2025-09-15, 9999)\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Q7.}  FC Sud has 7 active contracts in July 2025, 10 from August to
+December, and 0 from January to June 2026 (the suspension).
+
+\textbf{Q8.}  15 gaps, one per E6 restart, found with \code{LAG}.
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}llllr@{}}
+\toprule
+Player & Club & Previous to & Next from & Gap (days)\\
+\midrule
+P27 Catalin Cernat & Universitatea Est & 2026-02-01 & 2027-01-01 & 334\\
+P17 Octavian Cretu & CS Port & 2026-01-01 & 2026-08-01 & 212\\
+P51--P60 (10 players) & FC Sud & 2026-01-01 & 2026-07-01 & 181 each\\
+P7 Eduard Neagu & FC Nord & 2026-02-01 & 2026-07-01 & 150\\
+P12 Iulian Toma & CS Port & 2026-01-15 & 2026-06-01 & 137\\
+P46 Nicolae Stoica & CSM Centru & 2026-07-01 & 2026-09-01 & 62\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{EXPLAIN Q6.}  With the index, Q6 is a range scan on
+\code{(club\_id, tx\_to, valid\_from)}; without it, a full scan of all 19 rows.
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}lllll@{}}
+\toprule
+Plan & Type & Key & Rows & Extra\\
+\midrule
+with \code{ix\_coach\_asof} & \code{range} & \code{ix\_coach\_asof} & 4 & Using index condition; Using where\\
+\code{IGNORE INDEX} & \code{ALL} & \code{NULL} & 19 & Using where\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{document}
