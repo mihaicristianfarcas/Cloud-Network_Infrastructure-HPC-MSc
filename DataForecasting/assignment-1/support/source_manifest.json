@@ -1,0 +1,168 @@
+{
+  "retrieved_on": "2026-10-05",
+  "source_snapshots": [
+    {
+      "file": "raw/nvda_daily.json",
+      "download_url": "https://query1.finance.yahoo.com/v8/finance/chart/NVDA?range=10y&interval=1d",
+      "sha256": "e90d956d85e434d8cd01b7547c3646a86e30e8c944b00e4f8f50325b440f547a"
+    },
+    {
+      "file": "raw/sp500_daily.json",
+      "download_url": "https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?range=10y&interval=1d",
+      "sha256": "f41afc2aae10060650841ed2bc647627135a883f1a7528cc074aeb3a99a4fc8d"
+    },
+    {
+      "file": "raw/vix_daily.csv",
+      "download_url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv",
+      "sha256": "6edc3e3928c4b164b9e4ed1ec874e0ed53c7d52997557adebb7d6b7451db565a"
+    },
+    {
+      "file": "raw/euro_area_gdp_eurostat.json",
+      "download_url": "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/namq_10_gdp?lang=EN&freq=Q&unit=CLV_I20&s_adj=SCA&na_item=B1GQ&geo=EA20&sinceTimePeriod=1995-Q1",
+      "sha256": "e5bedfe3e6abd9155ec175eed1689779213ee13aecafe24eef93bf57987c955f"
+    }
+  ],
+  "datasets": [
+    {
+      "file": "01_nvda_weekly.csv",
+      "frequency": "Weekly",
+      "observations": 312,
+      "attributes": [
+        "date",
+        "nvda_adjusted_close_usd",
+        "nvda_volume_shares"
+      ],
+      "start_label": "2020-10-16",
+      "end_label": "2026-10-02",
+      "missing": {
+        "date": 0,
+        "nvda_adjusted_close_usd": 0,
+        "nvda_volume_shares": 0
+      },
+      "statistics": {
+        "nvda_adjusted_close_usd": {
+          "min": 11.186727,
+          "max": 233.949997,
+          "mean": 82.11895301602564,
+          "std": 70.37539702408061
+        },
+        "nvda_volume_shares": {
+          "min": 400749200,
+          "max": 4308297000,
+          "mean": 1736870065.3846154,
+          "std": 815917634.3932972
+        }
+      }
+    },
+    {
+      "file": "02_sp500_vix_monthly.csv",
+      "frequency": "Monthly",
+      "observations": 108,
+      "attributes": [
+        "date",
+        "sp500_mean_close",
+        "vix_mean_close",
+        "vix_max_close"
+      ],
+      "start_label": "2017-10-01",
+      "end_label": "2026-09-01",
+      "missing": {
+        "date": 0,
+        "sp500_mean_close": 0,
+        "vix_mean_close": 0,
+        "vix_max_close": 0
+      },
+      "statistics": {
+        "sp500_mean_close": {
+          "min": 2556.99727,
+          "max": 7711.323335,
+          "mean": 4360.693295083333,
+          "std": 1436.1301791581964
+        },
+        "vix_mean_close": {
+          "min": 10.125455,
+          "max": 57.736818,
+          "mean": 19.348149342592592,
+          "std": 6.623351190101703
+        },
+        "vix_max_close": {
+          "min": 11.3,
+          "max": 82.69,
+          "mean": 24.509814814814813,
+          "std": 10.140618792662321
+        }
+      }
+    },
+    {
+      "file": "03_euro_area_real_gdp_quarterly.csv",
+      "frequency": "Quarterly",
+      "observations": 120,
+      "attributes": [
+        "date",
+        "real_gdp_index"
+      ],
+      "start_label": "1996-07-01",
+      "end_label": "2026-04-01",
+      "missing": {
+        "date": 0,
+        "real_gdp_index": 0
+      },
+      "statistics": {
+        "real_gdp_index": {
+          "min": 74.33,
+          "max": 114.67,
+          "mean": 95.81238333333333,
+          "std": 10.508761323662418
+        }
+      }
+    }
+  ],
+  "standard_deviation": "Sample standard deviation, ddof=1, computed from exported values",
+  "vix_dates_excluded_to_align_with_sp500": [
+    "2022-05-30",
+    "2022-06-20",
+    "2022-07-04",
+    "2022-09-05",
+    "2022-11-24",
+    "2023-01-16",
+    "2023-02-20",
+    "2023-05-29",
+    "2023-06-19",
+    "2023-07-04",
+    "2023-09-04",
+    "2023-11-23",
+    "2024-01-15",
+    "2024-02-19",
+    "2024-05-27",
+    "2024-06-19",
+    "2024-07-04",
+    "2024-09-02",
+    "2024-11-28",
+    "2025-01-09",
+    "2025-01-20",
+    "2025-02-17",
+    "2025-05-26",
+    "2025-06-19",
+    "2025-07-04",
+    "2025-09-01",
+    "2025-11-27",
+    "2026-01-19",
+    "2026-02-16",
+    "2026-05-25",
+    "2026-06-19",
+    "2026-07-03",
+    "2026-09-07"
+  ],
+  "eurostat_series": {
+    "dataset": "namq_10_gdp",
+    "filters": {
+      "freq": "Q",
+      "unit": "CLV_I20",
+      "s_adj": "SCA",
+      "na_item": "B1GQ",
+      "geo": "EA20"
+    },
+    "updated": "2026-10-02T23:00:00+0200",
+    "source_observations": 126
+  }
+}

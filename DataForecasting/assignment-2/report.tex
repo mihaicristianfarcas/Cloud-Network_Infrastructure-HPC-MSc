@@ -1,0 +1,273 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=22mm]{geometry}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+\setlist[itemize]{topsep=2pt, itemsep=2pt, parsep=0pt}
+\lstset{language=Python, basicstyle=\ttfamily\footnotesize, breaklines=true,
+        commentstyle=\color{gray}, stringstyle=\color{teal!70!black}, columns=fullflexible, showstringspaces=false}
+
+% A figure that always stays exactly where it is written.
+\newcommand{\plot}[2][\textwidth]{\begin{center}\includegraphics[width=#1]{figures/#2.png}\end{center}}
+
+\begin{document}
+
+{\Large\bfseries Assignment 2: Time series graphics}\par
+{\small Data Forecasting. Plots made with Python (pandas + matplotlib); the full code is in the appendix and in \texttt{analysis.py}.}
+
+\section*{Before we start}
+
+Replacing a dataset to have seasonality.
+None of the three Assignment 1 series is seasonal. NVIDIA and S\&P 500/VIX are financial market prices,
+and the euro-area GDP was seasonally adjusted by Eurostat (code SCA), which means the seasonality had been removed on purpose.
+As the assignment asks, dataset 3 is replaced by the same GDP series, not seasonally adjusted (code NSA):
+same source (Eurostat table \texttt{namq\_10\_gdp}, real GDP index 2020 = 100, euro area EA20), same 120 quarters (1996 Q3 to 2026 Q2), no missing values.
+It was downloaded on 21 October 2026 with \texttt{download\_gdp.py} and saved as \texttt{03\_euro\_area\_real\_gdp\_nsa\_quarterly.csv}.
+This series is used from now on.
+
+Number of lags. All lag plots use 12 lags (at least 9 were required): 12 lags cover one year of monthly data and three years of quarterly data,
+so a yearly seasonal pattern would show up. For the weekly NVIDIA data, 12 lags cover about 3 months (a yearly pattern would need lag 52),
+so its seasonality is judged from the line plot.
+
+Words used:
+\begin{itemize}
+  \item Trend = a long-term increase or decrease.
+  \item Seasonality = a pattern that repeats at a fixed period (e.g.\ every year).
+  \item Cycle = rises and falls that are not of fixed length (e.g.\ recessions).
+  \item Stationary = the series looks the same no matter when you look at it: no trend, no seasonality, roughly constant spread.
+\end{itemize}
+
+% =====================================================================
+\newpage
+\section{NVIDIA stock (weekly, 312 weeks, Oct 2020 to Oct 2026)}
+
+Two variables: adjusted close price (USD) and weekly trading volume (shown in billions of shares).
+
+\subsection*{Line plot}
+\plot{1a_nvda_line}
+Price:
+\begin{itemize}
+  \item Trend: strong upward trend, from about \$13 in 2020 to about \$234 in 2026, almost all of it after the start of 2023.
+        Before that there is a rise in 2021 and a fall in 2022 (from about \$33 to \$11).
+  \item Seasonality: none; nothing repeats at the same time each year.
+  \item Cycle: no clear cycle. One full boom and bust (Nov 2021 to Oct 2022, $-66\%$); the later falls ($-22\%$ in summer 2024,
+        $-36\%$ from Nov 2024 to Apr 2025) were short dips inside the uptrend.
+  \item Variance: the swings get larger as the price gets higher (e.g.\ the fall from about \$147 in November 2024 to \$94 in April 2025), so the variance is not constant.
+  \item Stationary: no (trend and growing variance).
+\end{itemize}
+
+Volume:
+\begin{itemize}
+  \item Trend: no steady trend, but the level changes: higher in 2022--2023 (around 2--3 billion shares a week),
+        then a clear decline since mid-2024 down to about 0.5--1 billion.
+  \item Seasonality: none visible.
+  \item Cycle: no clear cycle.
+  \item Variance: very noisy from week to week, with single-week spikes.
+  \item Stationary: no, because the average level changes over time.
+\end{itemize}
+
+\subsection*{Seasonal plots}
+Not made: the line plot shows no seasonality in either variable.
+
+\subsection*{Scatter plot (price vs.\ volume)}
+\plot[0.8\textwidth]{1b_nvda_scatter}
+\begin{itemize}
+  \item With two variables there is only one pair. The colour shows the year (light = 2020, dark = 2026).
+  \item There is a negative relationship (correlation $-0.68$): high-price weeks have low volume.
+  \item The colours show that this is mostly about time: in 2020--2023 (light dots) the price was low and the volume varied a lot,
+        while in 2025--2026 (dark dots) the price is high and the volume is low.
+  \item Both variables trend over time in opposite directions, so the plot does not prove that one causes the other.
+  \item One likely reason: volume is counted in shares, and at a higher price fewer shares are needed for the same amount of money.
+\end{itemize}
+
+\subsection*{Lag plots: price}
+\plot{1c_nvda_lag_price}
+\begin{itemize}
+  \item At every lag the dots lie very close to the diagonal (r goes only from 1.00 at lag 1 to 0.97 at lag 12):
+        the price this week is almost the same as the price a few weeks ago.
+  \item This strong, slowly fading dependence is typical of a trending, non-stationary series.
+  \item At larger lags the cloud spreads out and moves above the diagonal, because the price now is usually higher than k weeks ago (the upward trend).
+  \item No lag stands out, so there is no repeating pattern within 12 weeks.
+\end{itemize}
+
+\subsection*{Lag plots: volume}
+\plot{1d_nvda_lag_volume}
+\begin{itemize}
+  \item A clear but much weaker positive relationship: r = 0.77 at lag 1, falling slowly to about 0.6 at lag 12.
+  \item The wide cloud shows the large week-to-week noise.
+  \item The slow decline in r comes from the long periods of high volume (2022--2023) and low volume (2025--2026):
+        weeks inside the same period resemble each other.
+  \item No lag stands out, so there is no repeating pattern within 12 weeks.
+\end{itemize}
+
+% =====================================================================
+\newpage
+\section{S\&P 500 and VIX (monthly, 108 months, Oct 2017 to Sep 2026)}
+
+Three variables: S\&P 500 monthly mean close, VIX monthly mean close, VIX monthly maximum daily close.
+VIX measures expected stock-market volatility (``fear index'').
+
+\subsection*{Line plot}
+\plot{2a_market_line}
+S\&P 500:
+\begin{itemize}
+  \item Trend: clear upward trend, from about 2{,}600 to about 7{,}700 points.
+  \item Seasonality: none; the falls listed below do not happen in the same month each year.
+  \item Cycle: no regular cycle. The trend is interrupted by falls at irregular times: late 2018, the COVID crash in March 2020,
+        a long decline during 2022, a drop in March--April 2025 and a smaller one in March 2026.
+  \item Stationary: no (trend).
+\end{itemize}
+
+VIX (mean and max):
+\begin{itemize}
+  \item Trend: none; the series keeps returning to about 15--20.
+  \item Seasonality: none; the spikes happen in different months.
+  \item Cycle: no regular cycle. Sudden spikes fade within a few months: early 2018, end of 2018, March 2020 (the largest: mean 57.7, max 82.7), August 2024 and April 2025.
+        From mid-2020 to the end of 2022 VIX stays above its usual level (mostly 20--30) without big spikes.
+  \item Mean vs.\ max: the maximum is always above the mean (by definition), and the gap is largest during spikes.
+  \item Stationary: roughly yes, the closest to stationary of all the series: no trend, no seasonality, a stable usual level; only the spikes make the spread uneven.
+\end{itemize}
+
+\subsection*{Seasonal plots}
+Not made: the line plot shows no seasonality in any of the three variables.
+
+\subsection*{Pairwise scatter plots}
+\plot{2b_market_scatter}
+\begin{itemize}
+  \item All three pairs of variables; colour shows the year (light = 2017, dark = 2026).
+  \item VIX mean vs.\ S\&P 500 and VIX max vs.\ S\&P 500 (left, middle): only a weak negative relationship (correlation $-0.14$ for both).
+  \item The S\&P 500 trends up over time while VIX does not, so the S\&P level alone says little about VIX.
+  \item But the highest VIX values occur in months when the S\&P 500 had just fallen (March 2020 at about 2{,}650 points, April 2025 at about 5{,}370).
+  \item VIX max vs.\ VIX mean (right): a strong positive, almost straight-line relationship (correlation 0.95), as expected,
+        since both are computed from the same daily values.
+  \item The single point at the top right is March 2020.
+\end{itemize}
+
+\subsection*{Lag plots: S\&P 500}
+\plot{2c_sp500_lag}
+\begin{itemize}
+  \item Very similar to the NVIDIA price: dots close to the diagonal at all lags (r from 0.99 down to 0.92), a sign of a trending, non-stationary series.
+  \item As the lag grows, most dots move above the diagonal (the index is higher than k months ago, i.e.\ the upward trend).
+  \item The group of dots below the diagonal around 4{,}000--4{,}700 is 2022, when the index was lower than in the months before.
+  \item No lag stands out (lag 12 is not special), so no seasonality.
+\end{itemize}
+
+\subsection*{Lag plots: VIX mean}
+\plot{2d_vix_mean_lag}
+\begin{itemize}
+  \item Very different from the S\&P 500. At lag 1 there is a clear positive relationship (r = 0.67): a high-volatility month is usually followed by another fairly high one.
+  \item But it fades fast: r = 0.42 at lag 2, about 0.2 at lags 4--7 and about 0 at lags 9--12.
+  \item So VIX only ``remembers'' the last few months, which fits a stationary series that returns to its usual level after each spike.
+  \item Lag 12 shows nothing special (no yearly pattern), so no seasonality.
+  \item The isolated dots far from the cloud come from March--April 2020.
+\end{itemize}
+
+\subsection*{Lag plots: VIX max}
+\plot{2e_vix_max_lag}
+\begin{itemize}
+  \item Same picture as the VIX mean, slightly weaker: r = 0.61 at lag 1, about 0.1--0.2 at lags 3--8, near 0 at lags 9--12.
+  \item The monthly maximum depends on a single day, so it is noisier than the monthly mean.
+  \item Again a short memory, no seasonality.
+  \item The dot at 82.7 is March 2020.
+\end{itemize}
+
+% =====================================================================
+\newpage
+\section{Euro-area real GDP, not seasonally adjusted (quarterly, 120 quarters, 1996 Q3 to 2026 Q2)}
+
+One variable: real GDP index (2020 = 100). This is the seasonal replacement described at the start.
+
+\subsection*{Line plot}
+\plot{3a_gdp_line}
+\begin{itemize}
+  \item Trend: GDP grows from about 74 to about 115 over 30 years; growth is faster before 2008 than after.
+  \item Seasonality: a saw-tooth that repeats every year (every 4 quarters): low in Q1, high in Q4.
+  \item Cycle: the business cycle shows as irregular downturns: the 2008--2009 financial crisis, flat or falling GDP around 2011--2013 (euro debt crisis)
+        and the COVID-19 collapse in 2020 Q2 followed by a fast rebound. These downturns are not at fixed intervals, so they are a cycle, not seasonality.
+  \item Stationary: no (trend and seasonality).
+\end{itemize}
+
+\subsection*{Seasonal plot}
+\plot[0.85\textwidth]{3b_gdp_seasonal}
+\begin{itemize}
+  \item Each line is one year (light = 1996, dark = 2026), plotted across its four quarters.
+  \item Almost every line has the same shape: lowest in Q1, up in Q2, flat or slightly down in Q3, highest in Q4.
+  \item In the 29 complete years (1997--2025), Q1 is the lowest quarter in 28 (all except 2020) and Q4 is the highest in 28 (all except 2008, the financial crisis).
+  \item On average Q1 is about 2.4\% below its year's average and Q4 about 3.0\% above.
+  \item The lines are stacked upwards because of the trend; the many lines bunched together around 90--98 are the slow-growth years 2008--2015.
+  \item The one line that breaks the pattern is 2020, with its deep fall in Q2 (COVID-19 lockdowns).
+\end{itemize}
+
+\subsection*{Seasonal subseries plot}
+\plot{3c_gdp_subseries}
+\begin{itemize}
+  \item Each panel shows one quarter across all years; the black line is that quarter's average.
+  \item Q4 has the highest average (97.8) and Q1 the lowest (94.0), confirming the seasonal pattern.
+        (The averages also contain the trend, so they are only a rough measure of the seasonal effect.)
+  \item All four panels have the same shape (same trend, same dips in 2009 and 2020), which means the seasonal pattern is stable over time:
+        it does not grow, shrink or change shape.
+  \item The COVID-19 fall is by far the largest in Q2 (2020 Q2).
+\end{itemize}
+
+\subsection*{Lag plots}
+\plot{3d_gdp_lag}
+\begin{itemize}
+  \item Dots are coloured by the quarter of y(t). All lags have a high r (0.89 to 0.97) because of the trend.
+  \item At lag 1 the colours separate: Q1 dots (blue) lie below the diagonal (Q1 is lower than the Q4 just before it), and Q4 dots (green) lie above (Q4 is higher than Q3).
+  \item At lags 4, 8 and 12 (the same quarter one, two and three years earlier) all colours mix in a narrow band along the diagonal,
+        and r is higher than at the neighbouring lags (lag 4: 0.97 vs.\ 0.94 at lag 3 and 0.92 at lag 5; lag 8: 0.94 vs.\ 0.91 at lag 7 and 0.90 at lag 9).
+  \item Together, this is the signature of seasonality with period 4 quarters (one year).
+  \item In every panel, two dots lie far from the diagonal, and both come from the single COVID-19 quarter 2020 Q2 (GDP 91.4).
+        The dot below the line is 2020 Q2 itself as the value now (always orange).
+        The dot above the line is the quarter k periods later, compared with that very low value; its colour changes with the lag
+        (e.g.\ lag 1: 2020 Q3, pink; lag 4: 2021 Q2, orange).
+\end{itemize}
+
+% =====================================================================
+\newpage
+\section{Summary}
+
+\begin{center}\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Series & Trend & Seasonality & Cycle & Looks stationary? \\
+\midrule
+NVIDIA price             & yes, up        & no  & no (one boom/bust, short dips)  & no \\
+NVIDIA volume            & level changes  & no  & no                  & no \\
+S\&P 500                 & yes, up        & no  & irregular falls     & no \\
+VIX mean / VIX max       & no             & no  & irregular spikes    & roughly yes \\
+Euro-area GDP (NSA)      & yes, up        & yes, yearly & yes (recessions) & no \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+  \item Most of the series are not stationary because of a trend; to model them, differencing (or returns) would be needed. VIX is the only one that looks roughly stationary.
+  \item The euro-area GDP (not seasonally adjusted) is the seasonal series that will be used from now on: a stable yearly pattern with Q1 low and Q4 high.
+  \item In the multivariate datasets, the strongest relationship is VIX max vs.\ VIX mean. The other relationships (NVIDIA price vs.\ volume, S\&P 500 vs.\ VIX) are weaker and mostly driven by time.
+\end{itemize}
+
+% =====================================================================
+\newpage
+\appendix
+\section*{Appendix: code}
+
+How to run. From the assignment folder: \texttt{pip install -r requirements.txt}, then \texttt{python analysis.py}.
+It reads the three CSV files and saves all the plots in \texttt{figures/}.
+\texttt{download\_gdp.py} was run once to create the new seasonal GDP CSV.
+
+\subsection*{\texttt{analysis.py}}
+\lstinputlisting{analysis.py}
+
+\subsection*{\texttt{download\_gdp.py}}
+\lstinputlisting{download_gdp.py}
+
+\end{document}
